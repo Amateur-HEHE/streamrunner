@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Neon Solo - Mobile Enhanced</title>
+  <link rel="icon" type="image/png" href="bal.png">
+  <style>
+    :root {
+      --player-color: #00aaff;
+      --neon-glow: #0ff;
+      --danger-color: #ff0044;
+    }
+
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #050505;
+      color: white;
+      font-family: 'Courier New', Courier, monospace;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none; /* Prevents default browser gestures */
+    }
+
+    #game-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    canvas { 
+      display: block;
+      max-width: 100vw;
+      max-height: 100vh;
+      object-fit: contain;
+      box-shadow: 0 0 50px rgba(0, 255, 255, 0.2);
+      border: 1px solid #111;
+    }
+
+    #ui-layer {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #score-board {
+      position: absolute;
+      top: 5%;
+      font-size: clamp(20px, 5vw, 32px);
+      font-weight: bold;
+      text-shadow: 0 0 10px #fff;
+      display: none; 
+      width: 100%;
+      text-align: center;
+    }
+
+    #overlay {
+      text-align: center;
+      background: rgba(0, 0, 0, 0.92);
+      padding: 30px;
+      border: 3px solid var(--neon-glow);
+      border-radius: 15px;
+      box-shadow: 0 0 30px var(--neon-glow);
+      pointer-events: auto;
+      max-width: 85%;
+      z-index: 10;
+    }
+
+    h1 { margin: 0 0 10px 0; font-size: clamp(24px, 8vw, 48px); text-transform: uppercase; color: #fff; text-shadow: 0 0 20px var(--neon-glow), 0 0 40px var(--neon-glow); }
+    p { font-size: clamp(14px, 2.5vw, 18px); color: #aaa; margin: 5px 0; }
+    
+    .controls-display {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      margin: 20px 0;
+      flex-wrap: wrap;
+    }
+
+    .c-box { border: 1px solid var(--player-color); padding: 10px; border-radius: 8px; background: rgba(0, 170, 255, 0.1); }
+    .blink { animation: blinker 1.5s linear infinite; font-weight: bold; color: var(--player-color); margin-top: 15px; font-size: 1.2rem; }
+    
+    @keyframes blinker { 50% { opacity: 0; } }
+
+    /* Touch Controls */
+    #touch-controls {
+      position: absolute;
+      bottom: 5%;
+      left: 0;
+      width: 100%;
+      display: none; /* Shown via JS */
+      justify-content: space-between;
+      padding: 0 20px;
+      box-sizing: border-box;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .control-group {
+      display: flex;
+      gap: 15px;
+      align-items: flex-end;
+    }
+
+    .touch-btn {
+      width: 75px;
+      height: 75px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 2px solid var(--neon-glow);
+      border-radius: 50%;
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.1s;
+    }
+
+    .touch-btn:active {
+      background: rgba(0, 255, 255, 0.3);
+      transform: scale(0.85);
+    }
+  </style>
+</head>
+
+<body>
+<div id="game-container">
+  <canvas id="game"></canvas>
+  <div id="ui-layer">
+    <div id="score-board">SCORE: <span id="s1" style="color:var(--player-color)">0</span></div>
+    <div id="overlay">
+      <h1 id="title-text">Neon Solo</h1>
+      <p id="instruction-text">Use WASD or Touch Controls</p>
+      <div class="controls-display" id="desktop-info">
+        <div class="c-box"><b>W A S D</b> + <b>Shift</b></div>
+        <div class="c-box"><b>ARROWS</b> + <b>.</b></div>
+      </div>
+      <p><strong>5x MID-AIR JUMPS</strong></p>
+      <div class="blink" id="start-prompt">TAP OR PRESS ENTER</div>
+    </div>
+  </div>
+
+  <div id="touch-controls">
+    <div class="control-group">
+      <div class="touch-btn" id="btn-left">◀</div>
+      <div class="touch-btn" id="btn-right">▶</div>
+    </div>
+    <div class="control-group">
+      <div class="touch-btn" id="btn-dash" style="border-color:var(--danger-color); color:var(--danger-color)">⚡</div>
+      <div class="touch-btn" id="btn-jump">▲</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const GAME_W = 1000;
+const GAME_H = 550;
+canvas.width = GAME_W;
+canvas.height = GAME_H;
+
+let gameState = "START"; 
+let score = 0;
+let cameraX = 0;
+let lastX = 0;
+let shakeTime = 0;
+
+let platforms = [], coins = [], enemies = [], particles = [];
+let p = null; 
+
+const gravity = 0.6;
+const keys = {};
+
+// Device Detection
+const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+if (isTouch) {
+  document.getElementById("touch-controls").style.display = "flex";
+  document.getElementById("desktop-info").style.display = "none";
+  document.getElementById("instruction-text").innerText = "Use the on-screen buttons";
+}
+
+// Input Handlers
+document.addEventListener("keydown", e => {
+  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+  if(!keys[e.key] && gameState === "PLAYING") {
+      if((e.key === "w" || e.key === "ArrowUp") && p.jumpCount < 5) playerJump();
+  }
+  keys[e.key] = true;
+  if(e.key === "Enter" && (gameState === "START" || gameState === "GAMEOVER")) startGame();
+});
+
+document.addEventListener("keyup", e => keys[e.key] = false);
+
+// Touch Button Logic
+const touchMap = {
+  "btn-left": "ArrowLeft",
+  "btn-right": "ArrowRight",
+  "btn-jump": "ArrowUp",
+  "btn-dash": "."
+};
+
+Object.entries(touchMap).forEach(([id, key]) => {
+  const btn = document.getElementById(id);
+  btn.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    if (gameState === "START" || gameState === "GAMEOVER") startGame();
+    else {
+      if (key === "ArrowUp" && p.jumpCount < 5 && gameState === "PLAYING") playerJump();
+      keys[key] = true;
+    }
+  });
+  btn.addEventListener("touchend", (e) => {
+    e.preventDefault();
+    keys[key] = false;
+  });
+});
+
+function playerJump() {
+  p.dy = -13;
+  p.jumpCount++;
+  spawnParticles(p.x, p.y + p.r, "#fff", 8);
+}
+
+function startGame() {
+  score = 0; cameraX = 0; lastX = 0;
+  platforms = []; coins = []; enemies = []; particles = [];
+  platforms.push({x: 0, y: 400, w: 800, h: 25});
+  lastX = 800;
+  p = {x:250, y:300, r:15, dx:0, dy:0, color:"#00aaff", dash:0, jumpCount:0, history:[]};
+  document.getElementById("overlay").style.display = "none";
+  document.getElementById("score-board").style.display = "block";
+  gameState = "PLAYING";
+}
+
+function gameOver() {
+  gameState = "GAMEOVER";
+  shakeTime = 30; 
+  document.getElementById("overlay").style.display = "block";
+  document.getElementById("title-text").innerText = "CORE FAILURE";
+  document.getElementById("title-text").style.color = "#ff0044";
+  document.getElementById("start-prompt").innerText = "TAP BUTTON OR PRESS ENTER";
+}
+
+function generateWorld() {
+  while (lastX < cameraX + GAME_W + 800) {
+    let width = 150 + Math.random()*250;
+    let gap = 110 + Math.random()*160;
+    let y = 200 + Math.random() * 250; 
+    platforms.push({x:lastX+gap, y:y, w:width, h:15});
+    if(Math.random()<0.6) coins.push({x:lastX+gap+width/2, y:y-60, col:false});
+    if(Math.random()<0.35) enemies.push({x:lastX+gap+width/2, y:y-30, w:30, h:30, dir:1, minX: lastX+gap, maxX: lastX+gap+width-30});
+    lastX += gap + width;
+  }
+}
+
+function spawnParticles(x, y, color, amount=10){
+  for(let i=0; i<amount; i++) particles.push({x, y, dx:(Math.random()-0.5)*10, dy:(Math.random()-0.5)*10, life:15+Math.random()*15, color});
+}
+
+function updatePlayer(){
+  if(keys["a"] || keys["ArrowLeft"]) p.dx -= 1.0; 
+  else if(keys["d"] || keys["ArrowRight"]) p.dx += 1.0;
+  
+  p.dx *= 0.9; 
+
+  if((keys["Shift"] || keys["."] || keys["/"]) && p.dash <= 0){ 
+    p.dx *= 5.0; 
+    p.dash = 40; 
+    spawnParticles(p.x, p.y, p.color, 15); 
+  }
+  
+  if(p.dash > 0) p.dash--;
+  
+  p.dy += gravity; p.x += p.dx; p.y += p.dy;
+  if(p.x - p.r < cameraX) { p.x = cameraX + p.r; p.dx = 0; }
+  
+  p.history.push({x: p.x, y: p.y}); 
+  if(p.history.length > 10) p.history.shift();
+  if (p.y > GAME_H + 100) gameOver();
+  
+  platforms.forEach(pl=>{
+    if(p.x+p.r>pl.x && p.x-p.r<pl.x+pl.w && p.y+p.r>pl.y && p.y-p.r<pl.y+pl.h){
+      if(p.dy > 0 && p.y < pl.y + 10){ p.y = pl.y - p.r; p.dy = 0; p.jumpCount = 0; }
+    }
+  });
+}
+
+function update(){
+  if (gameState === "PLAYING") {
+    generateWorld();
+    updatePlayer();
+    let targetCam = p.x - GAME_W / 3; 
+    if(targetCam > cameraX) cameraX += (targetCam - cameraX) * 0.1;
+    
+    coins.forEach(c=>{
+      if(!c.col){
+        let dX=p.x-c.x, dY=p.y-c.y;
+        if(Math.sqrt(dX*dX+dY*dY) < p.r+15){ c.col=true; score+=10; spawnParticles(c.x, c.y, "#ffff00", 12); }
+      }
+    });
+
+    enemies.forEach((e, i)=>{
+      e.x += e.dir * 2.8; if(e.x > e.maxX || e.x < e.minX) e.dir *= -1;
+      if(p.x+p.r > e.x && p.x-p.r < e.x+e.w && p.y+p.r > e.y && p.y-p.r < e.y+e.h){
+        if(p.dy > 0 && p.y < e.y){ enemies.splice(i, 1); p.dy = -12; p.jumpCount = 1; shakeTime = 10; score+=20; spawnParticles(e.x+15, e.y+15, "#ff0044", 15); }
+        else gameOver();
+      }
+    });
+
+    particles.forEach((p, i)=>{ p.x+=p.dx; p.y+=p.dy; p.life--; if(p.life<=0) particles.splice(i, 1); });
+    platforms = platforms.filter(pl => pl.x + pl.w > cameraX - 200);
+    document.getElementById("s1").innerText = score;
+  }
+  draw();
+  requestAnimationFrame(update);
+}
+
+function draw(){
+  ctx.clearRect(0,0,GAME_W,GAME_H);
+  ctx.save();
+  if (shakeTime > 0) { ctx.translate((Math.random()-0.5)*shakeTime, (Math.random()-0.5)*shakeTime); shakeTime--; }
+  
+  ctx.strokeStyle = "rgba(0, 255, 255, 0.05)";
+  let gridOff = cameraX % 50;
+  for(let i=0; i<GAME_W+50; i+=50){ ctx.beginPath(); ctx.moveTo(i-gridOff, 0); ctx.lineTo(i-gridOff, GAME_H); ctx.stroke(); }
+  
+  platforms.forEach(pl=>{
+    ctx.shadowBlur=15; ctx.shadowColor="#0ff"; ctx.fillStyle="rgba(0, 255, 255, 0.8)";
+    ctx.fillRect(pl.x-cameraX, pl.y, pl.w, pl.h);
+  });
+
+  if (p) {
+    p.history.forEach((pos, i) => {
+      ctx.globalAlpha = i / p.history.length * 0.4; ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(pos.x-cameraX, pos.y, p.r * (i/p.history.length), 0, Math.PI*2); ctx.fill();
+    });
+    ctx.globalAlpha = 1; ctx.shadowBlur=20; ctx.shadowColor=p.color; ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x-cameraX, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle="#fff"; ctx.shadowBlur=0;
+    ctx.beginPath(); ctx.arc(p.x-cameraX + (p.dx>=0?6:-6), p.y-3, 4, 0, Math.PI*2); ctx.fill();
+    for(let j=0; j < (5-p.jumpCount); j++) { ctx.fillStyle = "#fff"; ctx.fillRect(p.x-cameraX - 12 + (j*5), p.y + 20, 3, 3); }
+  }
+
+  coins.forEach(c=>{ if(!c.col){ ctx.shadowBlur=15; ctx.shadowColor="#ff0"; ctx.fillStyle="#ff0"; ctx.beginPath(); ctx.arc(c.x-cameraX, c.y + Math.sin(Date.now()*0.005)*8, 8, 0, Math.PI*2); ctx.fill(); }});
+  enemies.forEach(e=>{ ctx.shadowBlur=20; ctx.shadowColor="#f04"; ctx.fillStyle="#f04"; ctx.fillRect(e.x-cameraX, e.y, e.w, e.h); });
+  particles.forEach(pt=>{ ctx.globalAlpha = pt.life/30; ctx.fillStyle=pt.color; ctx.fillRect(pt.x-cameraX, pt.y, 4, 4); });
+  ctx.restore();
+}
+
+requestAnimationFrame(update);
+</script>
+</body>
+</html>
